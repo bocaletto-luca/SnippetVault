@@ -1,0 +1,341 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width,initial-scale=1.0"/>
+  <title>SnippetVault – Code Snippet Manager</title>
+  <meta name="description" content="SnippetVault: a one‐page, client‐side code snippet manager with syntax‐highlighting, full‐text search, tags, and export/import.">
+  <meta name="author" content="Bocaletto Luca"/>
+
+  <!-- CodeMirror CSS -->
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.5/codemirror.min.css"/>
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.5/theme/material-darker.min.css"/>
+  <!-- Tabulator Optional for List Styling (or use plain CSS) -->
+  <style>
+    :root {
+      --bg: #f5f5f5;
+      --card: #fff;
+      --text: #333;
+      --primary: #0066cc;
+      --primary-dark: #004a99;
+    }
+    [data-theme="dark"] {
+      --bg: #1e1e1e;
+      --card: #2c2c2c;
+      --text: #ddd;
+      --primary: #339af0;
+      --primary-dark: #1c7ed6;
+    }
+    * { box-sizing:border-box; margin:0; padding:0; }
+    body {
+      display:flex; flex-direction:column;
+      min-height:100vh;
+      font-family:Arial,sans-serif;
+      background:var(--bg); color:var(--text);
+    }
+    header, footer {
+      background:var(--primary);
+      color:#fff; text-align:center; padding:1rem;
+    }
+    footer a { color:#fff; text-decoration:underline; }
+    main {
+      flex:1; display:flex; width:100%; overflow:hidden;
+    }
+    .sidebar {
+      width:280px; background:var(--card); overflow-y:auto;
+      border-right:1px solid #ccc;
+    }
+    .sidebar header {
+      padding:1rem; border-bottom:1px solid #ccc;
+      display:flex; flex-direction:column; gap:.5rem;
+    }
+    .sidebar header input,
+    .sidebar header button {
+      padding:.5rem; font-size:1rem;
+    }
+    .sidebar header .btn { background:var(--primary); color:#fff; border:none; cursor:pointer; }
+    .snippet-list { list-style:none; }
+    .snippet-list li {
+      padding:.6rem 1rem; border-bottom:1px solid #eee;
+      cursor:pointer; user-select:none;
+    }
+    .snippet-list li.active { background:rgba(0,102,204,0.1); }
+    .content {
+      flex:1; padding:1rem; overflow-y:auto;
+      background:var(--bg);
+    }
+    .form-row { margin-bottom:.8rem; display:flex; gap:.5rem; flex-wrap:wrap; }
+    .form-row input, .form-row select, .form-row textarea, .form-row button {
+      font-size:1rem; padding:.5rem; border:1px solid #ccc; border-radius:4px;
+    }
+    .form-row input, .form-row select, .form-row textarea { flex:1; }
+    .form-row button { background:var(--primary); color:#fff; border:none; cursor:pointer; transition:background .2s; }
+    .form-row button:hover { background:var(--primary-dark); }
+    #editor { height:300px; border:1px solid #ccc; border-radius:4px; }
+    .actions { display:flex; gap:.5rem; margin-top:1rem; flex-wrap:wrap; }
+    .actions button { padding:.6rem 1rem; font-size:1rem; background:var(--primary); color:#fff; border:none; border-radius:4px; cursor:pointer; transition:background .2s; }
+    .actions button:hover { background:var(--primary-dark); }
+
+    /* Responsive */
+    @media(max-width:800px) {
+      .sidebar { width:200px; }
+      #editor { height:200px; }
+    }
+  </style>
+</head>
+<body data-theme="light">
+  <header>
+    <h1>SnippetVault</h1>
+    <p>Your one‐page code snippet manager</p>
+  </header>
+
+  <main>
+    <!-- Sidebar -->
+    <aside class="sidebar">
+      <header>
+        <input id="searchInput" type="text" placeholder="🔍 Search snippets…"/>
+        <button id="btnNew" class="btn">+ New Snippet</button>
+        <button id="btnExport" class="btn">Export JSON</button>
+        <button id="btnImport" class="btn">Import JSON</button>
+        <button id="btnTheme" class="btn">🌙 Dark Mode</button>
+        <input type="file" id="importInput" accept=".json" style="display:none"/>
+      </header>
+      <ul id="snippetList" class="snippet-list"></ul>
+    </aside>
+
+    <!-- Content / Editor -->
+    <section class="content">
+      <div class="form-row">
+        <input id="titleInput" type="text" placeholder="Title"/>
+        <select id="langSelect">
+          <option value="javascript">JavaScript</option>
+          <option value="htmlmixed">HTML</option>
+          <option value="css">CSS</option>
+          <option value="python">Python</option>
+          <option value="markdown">Markdown</option>
+        </select>
+      </div>
+      <div class="form-row">
+        <input id="tagsInput" type="text" placeholder="Tags (comma separated)"/>
+      </div>
+      <div class="form-row">
+        <textarea id="descInput" rows="2" placeholder="Description…"></textarea>
+      </div>
+      <div id="editor"></div>
+      <div class="actions">
+        <button id="btnSave">💾 Save</button>
+        <button id="btnDelete">🗑️ Delete</button>
+        <button id="btnCopy">📋 Copy Code</button>
+        <button id="btnDownload">⬇️ Download</button>
+      </div>
+    </section>
+  </main>
+
+  <footer>
+    © 2025 Bocaletto Luca | 
+    <a href="https://github.com/bocaletto-luca/SnippetVault" target="_blank" rel="noopener">Repository</a>
+  </footer>
+
+  <!-- Dependencies -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.5/codemirror.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.5/mode/javascript/javascript.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.5/mode/xml/xml.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.5/mode/htmlmixed/htmlmixed.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.5/mode/css/css.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.5/mode/python/python.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.5/mode/markdown/markdown.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/lunr.js/2.3.9/lunr.min.js"></script>
+
+  <script>
+  document.addEventListener('DOMContentLoaded', () => {
+    const STORAGE = 'SnippetVaultDB';
+    let db = JSON.parse(localStorage.getItem(STORAGE) || '{"snippets":[]}');
+    const saveDB = () => localStorage.setItem(STORAGE, JSON.stringify(db));
+
+    // UI Refs
+    const searchInput = document.getElementById('searchInput');
+    const btnNew       = document.getElementById('btnNew');
+    const btnExport    = document.getElementById('btnExport');
+    const btnImport    = document.getElementById('btnImport');
+    const importInput  = document.getElementById('importInput');
+    const btnTheme     = document.getElementById('btnTheme');
+    const snippetList  = document.getElementById('snippetList');
+
+    const titleInput   = document.getElementById('titleInput');
+    const langSelect   = document.getElementById('langSelect');
+    const tagsInput    = document.getElementById('tagsInput');
+    const descInput    = document.getElementById('descInput');
+    const btnSave      = document.getElementById('btnSave');
+    const btnDelete    = document.getElementById('btnDelete');
+    const btnCopy      = document.getElementById('btnCopy');
+    const btnDownload  = document.getElementById('btnDownload');
+
+    const body         = document.body;
+    let editor, idx = null, lunrIndex;
+
+    // Initialize CodeMirror
+    editor = CodeMirror(document.getElementById('editor'), {
+      mode: 'javascript',
+      theme: 'material-darker',
+      lineNumbers: true,
+      viewportMargin: Infinity
+    });
+
+    // Build Lunr index
+    function buildSearchIndex() {
+      lunrIndex = lunr(function() {
+        this.ref('id');
+        this.field('title');
+        this.field('tags');
+        this.field('desc');
+        this.field('code');
+        db.snippets.forEach(s => this.add(s));
+      });
+    }
+
+    // Render snippet list
+    function renderList(filter = null) {
+      snippetList.innerHTML = '';
+      let list = db.snippets;
+      if (filter) {
+        const results = lunrIndex.search(filter);
+        const ids = new Set(results.map(r => r.ref));
+        list = list.filter(s => ids.has(s.id));
+      }
+      list.forEach((s, i) => {
+        const li = document.createElement('li');
+        li.textContent = s.title || '(untitled)';
+        li.classList.toggle('active', i === idx);
+        li.onclick = () => loadSnippet(i);
+        snippetList.appendChild(li);
+      });
+    }
+
+    // Load snippet into form
+    function loadSnippet(i) {
+      idx = i;
+      const s = db.snippets[i];
+      titleInput.value = s.title;
+      langSelect.value = s.lang;
+      tagsInput.value = s.tags.join(',');
+      descInput.value = s.desc;
+      editor.setValue(s.code);
+      editor.setOption('mode', s.lang);
+      renderList(searchInput.value);
+    }
+
+    // Clear form for new snippet
+    function clearForm() {
+      idx = null;
+      titleInput.value = '';
+      tagsInput.value = '';
+      descInput.value = '';
+      langSelect.value = 'javascript';
+      editor.setOption('mode', 'javascript');
+      editor.setValue('');
+      renderList(searchInput.value);
+    }
+
+    // Save or update snippet
+    btnSave.onclick = () => {
+      const snippet = {
+        id: Date.now().toString(),
+        title: titleInput.value.trim(),
+        lang: langSelect.value,
+        tags: tagsInput.value.split(',').map(t=>t.trim()).filter(t=>t),
+        desc: descInput.value.trim(),
+        code: editor.getValue()
+      };
+      if (idx === null) {
+        db.snippets.unshift(snippet);
+      } else {
+        snippet.id = db.snippets[idx].id;
+        db.snippets[idx] = snippet;
+      }
+      saveDB();
+      buildSearchIndex();
+      renderList(searchInput.value);
+      if (idx !== null) loadSnippet(idx);
+    };
+
+    // Delete snippet
+    btnDelete.onclick = () => {
+      if (idx === null) return;
+      if (!confirm('Delete this snippet?')) return;
+      db.snippets.splice(idx, 1);
+      saveDB();
+      buildSearchIndex();
+      clearForm();
+    };
+
+    // Copy code to clipboard
+    btnCopy.onclick = () => {
+      navigator.clipboard.writeText(editor.getValue());
+      alert('Code copied to clipboard');
+    };
+
+    // Download snippet as file
+    btnDownload.onclick = () => {
+      const s = editor.getValue();
+      const ext = langSelect.value.split('mixed')[0] || 'txt';
+      const blob = new Blob([s], { type: 'text/plain' });
+      const a = document.createElement('a');
+      a.href = URL.createObjectURL(blob);
+      a.download = (titleInput.value.trim() || 'snippet') + '.' + ext;
+      a.click();
+      URL.revokeObjectURL(a.href);
+    };
+
+    // New snippet
+    btnNew.onclick = clearForm;
+
+    // Search
+    searchInput.addEventListener('input', () => {
+      renderList(searchInput.value.trim());
+    });
+
+    // Export & Import
+    btnExport.onclick = () => {
+      const blob = new Blob([JSON.stringify(db,null,2)], { type:'application/json' });
+      const a = document.createElement('a');
+      a.href = URL.createObjectURL(blob);
+      a.download = 'snippets.json';
+      a.click();
+      URL.revokeObjectURL(a.href);
+    };
+    btnImport.onclick = () => importInput.click();
+    importInput.onchange = e => {
+      const file = e.target.files[0];
+      if (!file) return;
+      const reader = new FileReader();
+      reader.onload = () => {
+        try {
+          db = JSON.parse(reader.result);
+          saveDB();
+          buildSearchIndex();
+          clearForm();
+          alert('Imported successfully');
+        } catch {
+          alert('Invalid JSON file');
+        }
+      };
+      reader.readAsText(file);
+      importInput.value = '';
+    };
+
+    // Dark/Light Mode
+    btnTheme.onclick = () => {
+      const next = body.dataset.theme === 'light' ? 'dark' : 'light';
+      body.dataset.theme = next;
+      btnTheme.textContent = next === 'dark' ? '☀️ Light Mode' : '🌙 Dark Mode';
+    };
+
+    // Initialization
+    buildSearchIndex();
+    renderList();
+    clearForm();
+    Notification.requestPermission();
+  });
+  </script>
+</body>
+</html>
